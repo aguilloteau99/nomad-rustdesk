@@ -184,6 +184,8 @@ pub fn translate_locale(name: String, locale: &str) -> String {
         if !crate::is_rustdesk() {
             if s.contains("RustDesk")
                 && !name.starts_with("upgrade_rustdesk_server_pro")
+                && !name.starts_with("upgrade_remote_rustdesk_client")
+                && name != "server-oss-not-support-tip"
                 && name != "powered_by_me"
             {
                 let app_name = crate::get_app_name();
