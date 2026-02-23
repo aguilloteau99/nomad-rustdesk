@@ -1187,6 +1187,8 @@ pub struct AudioHandler {
     device_channel: u16,
     #[cfg(not(target_os = "linux"))]
     ready: Arc<std::sync::Mutex<bool>>,
+    #[cfg(target_os = "linux")]
+    handle_frame_count: u64,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -1419,6 +1421,10 @@ impl AudioHandler {
             log::debug!("PulseAudio simple binding does not exists");
             return;
         }
+        if self.audio_decoder.is_none() {
+            log::warn!("handle_frame called but audio_decoder is None (no format received yet?)");
+            return;
+        }
         self.audio_decoder.as_mut().map(|(d, buffer)| {
             if let Ok(n) = d.decode_float(&frame.data, buffer, false) {
                 let channels = self.channels;
@@ -1449,6 +1455,18 @@ impl AudioHandler {
                 }
                 #[cfg(target_os = "linux")]
                 {
+                    self.handle_frame_count += 1;
+                    if self.handle_frame_count == 1 || self.handle_frame_count % 250 == 0 {
+                        let rms: f32 = if n > 0 {
+                            (buffer[..n].iter().map(|s| s * s).sum::<f32>() / n as f32).sqrt()
+                        } else {
+                            0.0
+                        };
+                        log::info!(
+                            "PA write #{}: decoded_samples={}, rms={:.6}, channels={}",
+                            self.handle_frame_count, n, rms, channels
+                        );
+                    }
                     let data_u8 =
                         unsafe { std::slice::from_raw_parts::<u8>(buffer.as_ptr() as _, n * 4) };
                     self.simple.as_mut().map(|x| x.write(data_u8));
@@ -2933,14 +2951,25 @@ pub fn start_audio_thread() -> MediaSender {
     let (audio_sender, audio_receiver) = mpsc::channel::<MediaData>();
     std::thread::spawn(move || {
         let mut audio_handler = AudioHandler::default();
+        let mut frame_count: u64 = 0;
+        let mut last_log = std::time::Instant::now();
         loop {
             if let Ok(data) = audio_receiver.recv() {
                 match data {
                     MediaData::AudioFrame(af) => {
+                        frame_count += 1;
+                        if frame_count == 1 || last_log.elapsed().as_secs() >= 5 {
+                            log::info!(
+                                "Audio thread: frame #{}, data_len={}",
+                                frame_count,
+                                af.data.len()
+                            );
+                            last_log = std::time::Instant::now();
+                        }
                         audio_handler.handle_frame(*af);
                     }
                     MediaData::AudioFormat(f) => {
-                        log::debug!("recved audio format, sample rate={}", f.sample_rate);
+                        log::info!("recved audio format, sample rate={}, channels={}", f.sample_rate, f.channels);
                         audio_handler.handle_format(f);
                     }
                     _ => {}
@@ -2949,7 +2978,7 @@ pub fn start_audio_thread() -> MediaSender {
                 break;
             }
         }
-        log::info!("Audio decoder loop exits");
+        log::info!("Audio decoder loop exits, total frames received: {}", frame_count);
     });
     audio_sender
 }

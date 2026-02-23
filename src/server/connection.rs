@@ -264,6 +264,7 @@ pub struct Connection {
     from_switch: bool,
     voice_call_request_timestamp: Option<NonZeroI64>,
     voice_calling: bool,
+    voice_audio_frame_count: u64,
     options_in_login: Option<OptionMessage>,
     #[cfg(not(any(target_os = "ios")))]
     pressed_modifiers: HashSet<rdev::Key>,
@@ -448,6 +449,7 @@ impl Connection {
             audio_sender: None,
             voice_call_request_timestamp: None,
             voice_calling: false,
+            voice_audio_frame_count: 0,
             options_in_login: None,
             #[cfg(not(any(target_os = "ios")))]
             pressed_modifiers: Default::default(),
@@ -3150,12 +3152,23 @@ impl Connection {
                 Some(message::Union::AudioFrame(frame)) => {
                     if !self.disable_audio {
                         if let Some(sender) = &self.audio_sender {
+                            self.voice_audio_frame_count += 1;
+                            if self.voice_audio_frame_count == 1 || self.voice_audio_frame_count % 250 == 0 {
+                                log::info!(
+                                    "Voice AudioFrame #{}: data_len={}, disable_audio={}",
+                                    self.voice_audio_frame_count,
+                                    frame.data.len(),
+                                    self.disable_audio
+                                );
+                            }
                             allow_err!(sender.send(MediaData::AudioFrame(Box::new(frame))));
                         } else {
                             log::warn!(
                                 "Processing audio frame without the voice call audio sender."
                             );
                         }
+                    } else {
+                        log::debug!("AudioFrame dropped: disable_audio=true");
                     }
                 }
                 Some(message::Union::VoiceCallRequest(request)) => {
@@ -3164,8 +3177,14 @@ impl Connection {
                             NonZeroI64::new(request.req_timestamp)
                                 .unwrap_or(NonZeroI64::new(get_time()).unwrap()),
                         );
-                        // Notify the connection manager.
-                        self.send_to_cm(Data::VoiceCallIncoming);
+                        // Check auto-accept config before showing CM dialog
+                        if Config::get_option("voice-call-auto-accept") == "Y" {
+                            log::info!("Voice call auto-accepted via config flag");
+                            self.handle_voice_call(true).await;
+                        } else {
+                            // Original behavior: forward to CM for user approval
+                            self.send_to_cm(Data::VoiceCallIncoming);
+                        }
                     } else {
                         self.close_voice_call().await;
                     }
@@ -3699,6 +3718,10 @@ impl Connection {
             }
             self.send(msg).await;
             self.voice_calling = accepted;
+            if accepted {
+                self.voice_audio_frame_count = 0;
+                log::info!("Voice call accepted, reset audio frame counter");
+            }
             if self.is_authed_view_camera_conn() {
                 if let Some(s) = self.server.upgrade() {
                     s.write().unwrap().subscribe(
@@ -3714,6 +3737,10 @@ impl Connection {
     }
 
     pub async fn close_voice_call(&mut self) {
+        log::info!("Voice call closed");
+        // Notify the client to stop sending audio
+        let msg = new_voice_call_request(false);
+        self.send(msg).await;
         crate::audio_service::set_voice_call_input_device(None, true);
         // Notify the connection manager that the voice call has been closed.
         self.send_to_cm(Data::CloseVoiceCall("".to_owned()));
