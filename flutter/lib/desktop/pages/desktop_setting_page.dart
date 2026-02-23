@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:http/http.dart' as http;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +27,8 @@ import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
+import '../../common/widgets/qr_activation.dart';
+import '../../common/utils/secure_storage.dart';
 
 const double _kTabWidth = 200;
 const double _kTabHeight = 42;
@@ -58,6 +61,7 @@ enum SettingsTabKey {
   plugin,
   account,
   printer,
+  nomad,
   about,
 }
 
@@ -80,6 +84,7 @@ class DesktopSettingPage extends StatefulWidget {
     if (isWindows &&
         bind.mainGetBuildinOption(key: kOptionHideRemotePrinterSetting) != 'Y')
       SettingsTabKey.printer,
+    SettingsTabKey.nomad,
     SettingsTabKey.about,
   ];
 
@@ -208,6 +213,10 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
           settingTabs
               .add(_TabInfo(tab, 'Printer', Icons.print_outlined, Icons.print));
           break;
+        case SettingsTabKey.nomad:
+          settingTabs.add(
+              _TabInfo(tab, 'Nomad', Icons.phonelink_outlined, Icons.phonelink));
+          break;
         case SettingsTabKey.about:
           settingTabs
               .add(_TabInfo(tab, 'About', Icons.info_outline, Icons.info));
@@ -241,6 +250,9 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
           break;
         case SettingsTabKey.printer:
           children.add(const _Printer());
+          break;
+        case SettingsTabKey.nomad:
+          children.add(const _Nomad());
           break;
         case SettingsTabKey.about:
           children.add(const _About());
@@ -576,6 +588,11 @@ class _GeneralState extends State<_General> {
         },
       ));
     }
+    children.add(_OptionCheckBox(
+      context,
+      'Auto-accept voice calls',
+      'voice-call-auto-accept',
+    ));
     return _Card(title: 'Other', children: children);
   }
 
@@ -2302,7 +2319,7 @@ class _AboutState extends State<_About> {
       final scrollController = ScrollController();
       return SingleChildScrollView(
         controller: scrollController,
-        child: _Card(title: translate('About RustDesk'), children: [
+        child: _Card(title: translate('About Nomad'), children: [
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2321,7 +2338,7 @@ class _AboutState extends State<_About> {
                         .marginSymmetric(vertical: 4.0)),
               InkWell(
                   onTap: () {
-                    launchUrlString('https://rustdesk.com/privacy.html');
+                    launchUrlString('https://nomadrust.dev/privacy/');
                   },
                   child: Text(
                     translate('Privacy Statement'),
@@ -2329,7 +2346,7 @@ class _AboutState extends State<_About> {
                   ).marginSymmetric(vertical: 4.0)),
               InkWell(
                   onTap: () {
-                    launchUrlString('https://rustdesk.com');
+                    launchUrlString('https://nomadrust.dev');
                   },
                   child: Text(
                     translate('Website'),
@@ -2957,6 +2974,337 @@ void changeSocks5Proxy() async {
       onCancel: close,
     );
   });
+}
+
+//#endregion
+
+//#region Nomad
+
+class _Nomad extends StatefulWidget {
+  const _Nomad({Key? key}) : super(key: key);
+
+  @override
+  State<_Nomad> createState() => _NomadState();
+}
+
+class _NomadState extends State<_Nomad> {
+  final _licenseKeyController = TextEditingController();
+  final _serverUrlController = TextEditingController();
+  String _statusMessage = '';
+  Color _statusColor = Colors.grey;
+  bool _isLoading = false;
+  bool _showQr = false;
+  final scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedData();
+  }
+
+  @override
+  void dispose() {
+    _licenseKeyController.dispose();
+    _serverUrlController.dispose();
+    scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadSavedData() async {
+    final key = NomadSecureStorage.getLicenseKey();
+    final url = NomadSecureStorage.getServerUrl();
+    final expiresAt = NomadSecureStorage.getExpiresAt();
+
+    setState(() {
+      _licenseKeyController.text = key;
+      _serverUrlController.text = url;
+      if (key.isNotEmpty && expiresAt.isNotEmpty) {
+        try {
+          final expiry = DateTime.parse(expiresAt);
+          if (expiry.isAfter(DateTime.now())) {
+            _statusMessage = 'Active (expires ${expiry.toLocal()})';
+            _statusColor = Colors.green;
+          } else {
+            _statusMessage = 'Expired';
+            _statusColor = Colors.red;
+          }
+        } catch (e) {
+          _statusMessage = 'Active';
+          _statusColor = Colors.green;
+        }
+      } else {
+        _statusMessage = 'Inactive';
+        _statusColor = Colors.grey;
+      }
+    });
+  }
+
+  Future<String> _getMachineId() async {
+    // Machine ID: hostname + /etc/machine-id (Linux only for now)
+    String hostname = '';
+    String machineId = '';
+
+    try {
+      if (Platform.isLinux) {
+        final result =
+            await Process.run('cat', ['/etc/machine-id'], runInShell: true);
+        if (result.exitCode == 0) {
+          machineId = (result.stdout as String).trim();
+        }
+      }
+      hostname = Platform.localHostname;
+      return '$hostname:$machineId';
+    } catch (e) {
+      // Fallback to hostname only
+      return Platform.localHostname;
+    }
+  }
+
+  Future<void> _activate() async {
+    final key = _licenseKeyController.text.trim();
+    final serverUrl = _serverUrlController.text.trim();
+
+    if (key.isEmpty) {
+      setState(() {
+        _statusMessage = 'Please enter a license key';
+        _statusColor = Colors.orange;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _statusMessage = 'Activating...';
+      _statusColor = const Color(0xFF6366F1);
+    });
+
+    try {
+      final machineId = await _getMachineId();
+      final url = Uri.parse('$serverUrl/v1/activate');
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'license_key': key,
+              'machine_id': machineId,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final token = data['token'] as String;
+        final expiresAt = data['expires_at'] as String;
+
+        await NomadSecureStorage.saveLicenseData(key, token, expiresAt);
+        await NomadSecureStorage.setServerUrl(serverUrl);
+
+        setState(() {
+          _statusMessage = 'Activated successfully';
+          _statusColor = Colors.green;
+          _isLoading = false;
+        });
+      } else {
+        final error = jsonDecode(response.body)['error'] ?? 'Unknown error';
+        setState(() {
+          _statusMessage = 'Activation failed: $error';
+          _statusColor = Colors.red;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _statusMessage = 'Network error: ${e.toString()}';
+        _statusColor = Colors.red;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _deactivate() async {
+    final key = NomadSecureStorage.getLicenseKey();
+    final serverUrl = NomadSecureStorage.getServerUrl();
+
+    if (key.isEmpty) {
+      setState(() {
+        _statusMessage = 'No active license to deactivate';
+        _statusColor = Colors.orange;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _statusMessage = 'Deactivating...';
+      _statusColor = const Color(0xFF6366F1);
+    });
+
+    try {
+      final machineId = await _getMachineId();
+      final url = Uri.parse('$serverUrl/v1/deactivate');
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'license_key': key,
+              'machine_id': machineId,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        await NomadSecureStorage.clearLicense();
+        setState(() {
+          _statusMessage = 'Deactivated successfully';
+          _statusColor = Colors.grey;
+          _isLoading = false;
+        });
+      } else {
+        final error = jsonDecode(response.body)['error'] ?? 'Unknown error';
+        setState(() {
+          _statusMessage = 'Deactivation failed: $error';
+          _statusColor = Colors.red;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _statusMessage = 'Network error: ${e.toString()}';
+        _statusColor = Colors.red;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      controller: scrollController,
+      child: Column(
+        children: [
+          _Card(title: 'Nomad License', children: [
+            // Server URL
+            Row(
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 140),
+                  child: const Text(
+                    'Server URL:',
+                    textAlign: TextAlign.right,
+                  ).marginOnly(right: 10),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _serverUrlController,
+                    decoration: const InputDecoration(
+                      hintText: 'https://nomadrust.dev',
+                    ),
+                    enabled: !_isLoading,
+                  ).workaroundFreezeLinuxMint(),
+                ),
+              ],
+            ).marginOnly(bottom: 12),
+
+            // License Key
+            Row(
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 140),
+                  child: const Text(
+                    'License Key:',
+                    textAlign: TextAlign.right,
+                  ).marginOnly(right: 10),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _licenseKeyController,
+                    decoration: const InputDecoration(
+                      hintText: 'N0MD-XXXX-XXXX-XXXX',
+                    ),
+                    enabled: !_isLoading,
+                  ).workaroundFreezeLinuxMint(),
+                ),
+              ],
+            ).marginOnly(bottom: 12),
+
+            // Status
+            Row(
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 140),
+                  child: const Text(
+                    'Status:',
+                    textAlign: TextAlign.right,
+                  ).marginOnly(right: 10),
+                ),
+                Expanded(
+                  child: Text(
+                    _statusMessage,
+                    style: TextStyle(
+                      color: _statusColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ).marginOnly(bottom: 12),
+
+            // Loading indicator
+            if (_isLoading)
+              const LinearProgressIndicator().marginOnly(bottom: 12),
+
+            // Buttons
+            Row(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: [
+                const SizedBox(width: 150), // Align with fields
+                ElevatedButton.icon(
+                  onPressed: _isLoading ? null : _activate,
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('Activate'),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: _isLoading ? null : _deactivate,
+                  icon: const Icon(Icons.cancel_outlined),
+                  label: const Text('Deactivate'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[300],
+                    foregroundColor: Colors.black87,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _showQr = !_showQr;
+                    });
+                  },
+                  icon: Icon(_showQr ? Icons.qr_code : Icons.qr_code_scanner),
+                  label: Text(_showQr ? 'Hide QR' : 'Show QR'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE0E7FF),
+                    foregroundColor: const Color(0xFF312E81),
+                  ),
+                ),
+              ],
+            ),
+          ]),
+
+          // QR Code Section
+          if (_showQr)
+            _Card(title: 'QR Activation', children: [
+              QrActivationWidget(
+                licenseKey: _licenseKeyController.text.trim(),
+                serverUrl: _serverUrlController.text.trim(),
+              ),
+            ]),
+        ],
+      ),
+    ).marginOnly(bottom: _kListViewBottomMargin);
+  }
 }
 
 //#endregion
