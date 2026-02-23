@@ -16,6 +16,7 @@ import 'package:flutter_hbb/models/ab_model.dart';
 import 'package:flutter_hbb/models/chat_model.dart';
 import 'package:flutter_hbb/models/cm_file_model.dart';
 import 'package:flutter_hbb/models/file_model.dart';
+import 'package:flutter_hbb/models/gamepad_model.dart';
 import 'package:flutter_hbb/models/group_model.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
@@ -3304,6 +3305,20 @@ class CursorModel with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Move cursor by delta and send absolute position to peer.
+  /// Clamps to remote display rect to prevent coordinate drift.
+  void moveByDelta(double dx, double dy) {
+    _x += dx;
+    _y += dy;
+    final rect = parent.target?.ffiModel.rect;
+    if (rect != null) {
+      _x = _x.clamp(rect.left, rect.right);
+      _y = _y.clamp(rect.top, rect.bottom);
+    }
+    parent.target?.inputModel.moveMouse(_x, _y);
+    notifyListeners();
+  }
+
   updateDisplayOrigin(double x, double y, {updateCursorPos = true}) {
     _displayOriginX = x;
     _displayOriginY = y;
@@ -3517,6 +3532,7 @@ class FFI {
   late final Peers recentPeersModel; // global
   late final Peers favoritePeersModel; // global
   late final Peers lanPeersModel; // global
+  late final GamepadModel gamepadModel; // session
 
   // Terminal model registry for multiple terminals
   final Map<int, TerminalModel> _terminalModels = {};
@@ -3553,10 +3569,12 @@ class FFI {
         getInitPeers: null);
     lanPeersModel = Peers(
         name: PeersModelName.lan, loadEvent: LoadEvent.lan, getInitPeers: null);
+    gamepadModel = GamepadModel(WeakReference(this));
   }
 
   /// Mobile reuse FFI
   void mobileReset() {
+    gamepadModel.stop();
     ffiModel.waitForFirstImage.value = true;
     ffiModel.isRefreshing = false;
     ffiModel.waitForImageDialogShow.value = true;
@@ -3798,6 +3816,7 @@ class FFI {
 
   /// Close the remote session.
   Future<void> close({bool closeSession = true}) async {
+    gamepadModel.stop();
     closed = true;
     chatModel.close();
     // Close all terminal models

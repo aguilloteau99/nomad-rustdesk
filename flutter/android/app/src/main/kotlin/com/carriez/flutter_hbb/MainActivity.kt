@@ -29,8 +29,11 @@ import androidx.annotation.RequiresApi
 import org.json.JSONArray
 import org.json.JSONObject
 import com.hjq.permissions.XXPermissions
+import android.view.KeyEvent
+import android.view.MotionEvent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import kotlin.concurrent.thread
 
@@ -47,6 +50,8 @@ class MainActivity : FlutterActivity() {
     private val logTag = "mMainActivity"
     private var mainService: MainService? = null
 
+    private var gamepadHandler: GamepadHandler? = null
+
     private var isAudioStart = false
     private val audioRecordHandle = AudioRecordHandle(this, { false }, { isAudioStart })
 
@@ -62,6 +67,21 @@ class MainActivity : FlutterActivity() {
             channelTag
         )
         initFlutterChannel(flutterMethodChannel!!)
+
+        // Gamepad EventChannel
+        gamepadHandler = GamepadHandler()
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.carriez.flutter_hbb/gamepad_events"
+        ).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                gamepadHandler?.setEventSink(events)
+            }
+            override fun onCancel(arguments: Any?) {
+                gamepadHandler?.setEventSink(null)
+            }
+        })
+
         thread {
             try {
                 setCodecInfo()
@@ -106,6 +126,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         Log.e(logTag, "onDestroy")
+        gamepadHandler?.setEventSink(null)
         mainService?.let {
             unbindService(serviceConnection)
         }
@@ -410,5 +431,15 @@ class MainActivity : FlutterActivity() {
     override fun onStart() {
         super.onStart()
         stopService(Intent(this, FloatingWindowService::class.java))
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (gamepadHandler?.handleKeyEvent(event) == true) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (gamepadHandler?.handleMotionEvent(event) == true) return true
+        return super.dispatchGenericMotionEvent(event)
     }
 }

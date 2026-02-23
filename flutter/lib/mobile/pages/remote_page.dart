@@ -8,6 +8,8 @@ import 'package:flutter_hbb/common/widgets/toolbar.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/mobile/widgets/floating_mouse.dart';
 import 'package:flutter_hbb/mobile/widgets/floating_mouse_widgets.dart';
+import 'package:flutter_hbb/mobile/widgets/floating_voice_call.dart';
+import 'package:flutter_hbb/mobile/widgets/floating_joycon_overlay.dart';
 import 'package:flutter_hbb/mobile/widgets/gesture_help.dart';
 import 'package:flutter_hbb/models/chat_model.dart';
 import 'package:flutter_keyboard_visibility/flutter_keyboard_visibility.dart';
@@ -110,6 +112,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     }
     _physicalFocusNode.requestFocus();
     gFFI.inputModel.listenToMouse(true);
+    // Start gamepad if enabled in settings
+    if (bind.mainGetLocalOption(key: 'gamepad-enabled') == 'Y') {
+      gFFI.gamepadModel.start();
+    }
     gFFI.qualityMonitorModel.checkShowQualityMonitor(sessionId);
     keyboardSubscription =
         keyboardVisibilityController.onChange.listen(onSoftKeyboardChanged);
@@ -134,6 +140,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     // https://github.com/flutter/flutter/issues/64935
     super.dispose();
     gFFI.dialogManager.hideMobileActionsOverlay(store: false);
+    gFFI.gamepadModel.stop();
     gFFI.inputModel.listenToMouse(false);
     gFFI.imageModel.disposeImage();
     gFFI.cursorModel.disposeImages();
@@ -630,6 +637,16 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
             paints.add(FloatingMouseWidgets(
               ffi: gFFI,
             ));
+          }
+          // Voice call button — visible unless explicitly disabled
+          if (bind.mainGetLocalOption(key: 'show-voice-call-button') != 'N') {
+            paints.add(FloatingVoiceCallButton(ffi: gFFI));
+          }
+          // Joycon overlay — visible when gamepad enabled + overlay setting on
+          if (bind.mainGetLocalOption(key: 'gamepad-enabled') == 'Y' &&
+              bind.mainGetLocalOption(key: 'gamepad-show-overlay') == 'Y') {
+            paints.add(FloatingJoyconOverlay(
+                gamepadModel: gFFI.gamepadModel));
           }
           return paints;
         }()));

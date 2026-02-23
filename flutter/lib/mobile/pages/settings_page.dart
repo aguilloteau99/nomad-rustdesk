@@ -20,6 +20,7 @@ import '../../models/platform_model.dart';
 import '../widgets/dialog.dart';
 import 'home_page.dart';
 import 'scan_page.dart';
+import 'gamepad_mappings_page.dart';
 
 class SettingsPage extends StatefulWidget implements PageShape {
   @override
@@ -35,7 +36,7 @@ class SettingsPage extends StatefulWidget implements PageShape {
   State<SettingsPage> createState() => _SettingsState();
 }
 
-const url = 'https://rustdesk.com/';
+const url = 'https://nomadrust.dev/';
 
 enum KeepScreenOn {
   never,
@@ -526,7 +527,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
               title: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(translate('Keep RustDesk background service')),
+                    Text(translate('Keep Nomad background service')),
                     Text('* ${translate('Ignore Battery Optimizations')}',
                         style: Theme.of(context).textTheme.bodySmall),
                   ]),
@@ -916,6 +917,111 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             title: Text(translate("Enhancements")),
             tiles: enhancementsTiles,
           ),
+        if (isAndroid)
+          SettingsSection(
+            title: Text(translate('Gamepad')),
+            tiles: [
+              SettingsTile.switchTile(
+                title: Text(translate('Enable Joy-Con')),
+                leading: Icon(Icons.gamepad),
+                initialValue:
+                    bind.mainGetLocalOption(key: 'gamepad-enabled') == 'Y',
+                onToggle: (v) {
+                  bind.mainSetLocalOption(
+                      key: 'gamepad-enabled', value: v ? 'Y' : '');
+                  setState(() {});
+                },
+              ),
+              SettingsTile(
+                title: Text(translate('Mouse Speed')),
+                leading: Icon(Icons.speed),
+                description: Text(
+                    '${(double.tryParse(bind.mainGetLocalOption(key: 'gamepad-mouse-speed')) ?? 1.5).toStringAsFixed(1)}x'),
+                onPressed: (context) {
+                  _showMouseSpeedDialog();
+                },
+              ),
+              SettingsTile(
+                title: Text(translate('Scroll Speed')),
+                leading: Icon(Icons.swap_vert),
+                description: Text(
+                    '${(double.tryParse(bind.mainGetLocalOption(key: 'gamepad-scroll-speed')) ?? 1.0).toStringAsFixed(1)}x'),
+                onPressed: (context) {
+                  _showScrollSpeedDialog();
+                },
+              ),
+              SettingsTile.switchTile(
+                title: Text(translate('Rotate Stick Axes')),
+                description: Text(translate('For horizontal Joy-Con mode')),
+                leading: Icon(Icons.screen_rotation),
+                initialValue:
+                    bind.mainGetLocalOption(key: 'gamepad-rotate-axes') == 'Y',
+                onToggle: (v) {
+                  bind.mainSetLocalOption(
+                      key: 'gamepad-rotate-axes', value: v ? 'Y' : '');
+                  setState(() {});
+                },
+              ),
+              SettingsTile.switchTile(
+                title: Text(translate('Show Button Overlay')),
+                description:
+                    Text(translate('Show Joy-Con button mapping on screen')),
+                leading: Icon(Icons.layers),
+                initialValue:
+                    bind.mainGetLocalOption(key: 'gamepad-show-overlay') == 'Y',
+                onToggle: (v) {
+                  bind.mainSetLocalOption(
+                      key: 'gamepad-show-overlay', value: v ? 'Y' : '');
+                  setState(() {});
+                },
+              ),
+              SettingsTile(
+                title: Text(translate('Joy-Con Side')),
+                leading: Icon(Icons.swap_horiz),
+                description: Text(
+                    bind.mainGetLocalOption(key: 'gamepad-side') == 'right'
+                        ? translate('Right (R)')
+                        : translate('Left (L)')),
+                onPressed: (context) {
+                  _showJoyConSideDialog();
+                },
+              ),
+              SettingsTile(
+                title: Text(translate('Button Mappings')),
+                leading: Icon(Icons.tune),
+                trailing: Icon(Icons.arrow_forward_ios, size: 16),
+                description: Text(translate('Configure button actions')),
+                onPressed: (context) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => GamepadMappingsPage(
+                        onChanged: () => setState(() {}),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        if (isAndroid)
+          SettingsSection(
+            title: Text(translate('Voice Call')),
+            tiles: [
+              SettingsTile.switchTile(
+                title: Text(translate('Show voice call button')),
+                description: Text(translate('Show floating button in remote sessions')),
+                leading: Icon(Icons.phone),
+                initialValue:
+                    bind.mainGetLocalOption(key: 'show-voice-call-button') != 'N',
+                onToggle: (v) {
+                  bind.mainSetLocalOption(
+                      key: 'show-voice-call-button', value: v ? '' : 'N');
+                  setState(() {});
+                },
+              ),
+            ],
+          ),
         SettingsSection(
           title: Text(translate("About")),
           tiles: [
@@ -926,7 +1032,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                 title: Text(translate("Version: ") + version),
                 value: Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text('rustdesk.com',
+                  child: Text('nomadrust.dev',
                       style: TextStyle(
                         decoration: TextDecoration.underline,
                       )),
@@ -951,7 +1057,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             SettingsTile(
               title: Text(translate("Privacy Statement")),
               onPressed: (context) =>
-                  launchUrlString('https://rustdesk.com/privacy.html'),
+                  launchUrlString('https://nomadrust.dev/privacy/'),
               leading: Icon(Icons.privacy_tip),
             )
           ],
@@ -970,6 +1076,182 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       return false;
     }
     return true;
+  }
+
+  void _showMouseSpeedDialog() {
+    var speed =
+        (double.tryParse(bind.mainGetLocalOption(key: 'gamepad-mouse-speed')) ??
+            1.5).clamp(0.5, 3.0);
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(translate('Mouse Speed')),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Slider(
+                    value: speed,
+                    min: 0.5,
+                    max: 3.0,
+                    divisions: 25,
+                    label: '${speed.toStringAsFixed(1)}x',
+                    onChanged: (v) {
+                      setDialogState(() => speed = v);
+                    },
+                  ),
+                  Text('${speed.toStringAsFixed(1)}x'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(translate('Cancel')),
+                ),
+                TextButton(
+                  onPressed: () {
+                    bind.mainSetLocalOption(
+                        key: 'gamepad-mouse-speed',
+                        value: speed.toStringAsFixed(1));
+                    setState(() {});
+                    Navigator.pop(context);
+                  },
+                  child: Text(translate('OK')),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showScrollSpeedDialog() {
+    var speed =
+        (double.tryParse(bind.mainGetLocalOption(key: 'gamepad-scroll-speed')) ??
+            1.0).clamp(0.3, 3.0);
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(translate('Scroll Speed')),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Slider(
+                    value: speed,
+                    min: 0.3,
+                    max: 3.0,
+                    divisions: 27,
+                    label: '${speed.toStringAsFixed(1)}x',
+                    onChanged: (v) {
+                      setDialogState(() => speed = v);
+                    },
+                  ),
+                  Text('${speed.toStringAsFixed(1)}x'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(translate('Cancel')),
+                ),
+                TextButton(
+                  onPressed: () {
+                    bind.mainSetLocalOption(
+                        key: 'gamepad-scroll-speed',
+                        value: speed.toStringAsFixed(1));
+                    setState(() {});
+                    Navigator.pop(context);
+                  },
+                  child: Text(translate('OK')),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showJoyConSideDialog() {
+    final currentSide = bind.mainGetLocalOption(key: 'gamepad-side');
+    final hasCustomMappings =
+        bind.mainGetLocalOption(key: 'gamepad-mappings').isNotEmpty;
+
+    void switchSide(String newSide) {
+      bind.mainSetLocalOption(
+          key: 'gamepad-side', value: newSide == 'right' ? 'right' : '');
+      bind.mainSetLocalOption(key: 'gamepad-mappings', value: '');
+      gFFI.gamepadModel.reloadConfig();
+      setState(() {});
+    }
+
+    void confirmAndSwitch(String newSide) {
+      if (hasCustomMappings) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(translate('Switch Joy-Con Side')),
+            content: Text(translate(
+                'Switching sides will reset all button mappings to default. Continue?')),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(translate('Cancel')),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  switchSide(newSide);
+                },
+                child: Text(translate('Switch')),
+              ),
+            ],
+          ),
+        );
+      } else {
+        switchSide(newSide);
+      }
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(translate('Joy-Con Side')),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<String>(
+                title: Text(translate('Left (L)')),
+                value: 'left',
+                groupValue: currentSide == 'right' ? 'right' : 'left',
+                onChanged: (v) {
+                  Navigator.pop(context);
+                  if (currentSide != 'right') return;
+                  confirmAndSwitch('left');
+                },
+              ),
+              RadioListTile<String>(
+                title: Text(translate('Right (R)')),
+                value: 'right',
+                groupValue: currentSide == 'right' ? 'right' : 'left',
+                onChanged: (v) {
+                  Navigator.pop(context);
+                  if (currentSide == 'right') return;
+                  confirmAndSwitch('right');
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   defaultDisplaySection() {
@@ -1059,17 +1341,17 @@ void showThemeSettings(OverlayDialogManager dialogManager) async {
 void showAbout(OverlayDialogManager dialogManager) {
   dialogManager.show((setState, close, context) {
     return CustomAlertDialog(
-      title: Text(translate('About RustDesk')),
+      title: Text(translate('About Nomad')),
       content: Wrap(direction: Axis.vertical, spacing: 12, children: [
         Text('Version: $version'),
         InkWell(
             onTap: () async {
-              const url = 'https://rustdesk.com/';
+              const url = 'https://nomadrust.dev/';
               await launchUrl(Uri.parse(url));
             },
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('rustdesk.com',
+              child: Text('nomadrust.dev',
                   style: TextStyle(
                     decoration: TextDecoration.underline,
                   )),
