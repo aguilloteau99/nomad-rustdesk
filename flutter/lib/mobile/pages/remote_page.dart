@@ -166,8 +166,16 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Stop gamepad on pause to avoid background crash from phantom inputs.
+    // Restart on resume if still enabled. Stop is unconditional — the
+    // setting cannot change while paused. start() is idempotent.
     if (state == AppLifecycleState.resumed) {
       trySyncClipboard();
+      if (bind.mainGetLocalOption(key: 'gamepad-enabled') == 'Y') {
+        gFFI.gamepadModel.start();
+      }
+    } else if (state == AppLifecycleState.paused) {
+      gFFI.gamepadModel.stop();
     }
   }
 

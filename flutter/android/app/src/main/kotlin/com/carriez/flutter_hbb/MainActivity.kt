@@ -102,6 +102,11 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        gamepadHandler?.stopPolling()
+    }
+
     private fun requestMediaProjection() {
         val intent = Intent(this, PermissionRequestTransparentActivity::class.java).apply {
             action = ACT_REQUEST_MEDIA_PROJECTION

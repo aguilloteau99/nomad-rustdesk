@@ -118,6 +118,10 @@ class GamepadHandler {
         handler.postDelayed(runnable, BATTERY_POLL_MS)
     }
 
+    fun stopPolling() {
+        stopBatteryPolling()
+    }
+
     private fun stopBatteryPolling() {
         batteryRunnable?.let { handler.removeCallbacks(it) }
         batteryRunnable = null
