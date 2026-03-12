@@ -6,13 +6,18 @@ case $1 in
     remove|upgrade)
 		INITSYS=$(ls -al /proc/1/exe | awk -F' ' '{print $NF}' | awk -F'/' '{print $NF}')
 		rm -f /usr/bin/rustdesk
-		
+
 		if [ "systemd" == "${INITSYS}" ]; then
 
-			systemctl stop rustdesk || true
-			systemctl disable rustdesk || true
-			rm /etc/systemd/system/rustdesk.service /usr/lib/systemd/system/rustdesk.service || true
-			
+			systemctl stop nomad || true
+			systemctl disable nomad || true
+			rm /etc/systemd/system/nomad.service /usr/lib/systemd/system/nomad.service || true
+
+			# Also clean up legacy rustdesk.service if present
+			systemctl stop rustdesk >/dev/null 2>&1 || true
+			systemctl disable rustdesk >/dev/null 2>&1 || true
+			rm -f /etc/systemd/system/rustdesk.service /usr/lib/systemd/system/rustdesk.service
+
 			# workaround temp dev build between 1.1.9 and 1.2.0
 			serverUser=$(ps -ef | grep -E 'rustdesk +--server' | grep -v 'sudo ' | awk '{print $1}' | head -1)
 			if [ "$serverUser" != "" ] && [ "$serverUser" != "root" ]

@@ -334,7 +334,7 @@ def build_flutter_deb(version, features):
     system2(
         f'cp -r {flutter_build_dir}/* tmpdeb/usr/share/rustdesk/')
     system2(
-        'cp ../res/rustdesk.service tmpdeb/usr/share/rustdesk/files/systemd/')
+        'cp ../res/nomad.service tmpdeb/usr/share/rustdesk/files/systemd/')
     system2(
         'cp ../res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/nomad.png')
     system2(
@@ -377,7 +377,7 @@ def build_deb_from_folder(version, binary_folder):
     system2(
         f'cp -r ../{binary_folder}/* tmpdeb/usr/share/rustdesk/')
     system2(
-        'cp ../res/rustdesk.service tmpdeb/usr/share/rustdesk/files/systemd/')
+        'cp ../res/nomad.service tmpdeb/usr/share/rustdesk/files/systemd/')
     system2(
         'cp ../res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/nomad.png')
     system2(
@@ -606,7 +606,7 @@ def main():
                 system2('mkdir -p tmpdeb/usr/share/icons/hicolor/256x256/apps/')
                 system2('mkdir -p tmpdeb/usr/share/icons/hicolor/scalable/apps/')
                 system2(
-                    'cp res/rustdesk.service tmpdeb/usr/share/rustdesk/files/systemd/')
+                    'cp res/nomad.service tmpdeb/usr/share/rustdesk/files/systemd/')
                 system2(
                     'cp res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/nomad.png')
                 system2(
